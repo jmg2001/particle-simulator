@@ -6,17 +6,46 @@ import pyrr
 from dataclasses import dataclass
 from typing import List
 import random
+import math
 
 
-@dataclass
+def map_range(x, in_min=0, in_max=1000, out_min=-11, out_max=11):
+    return out_min + (x - in_min) * (out_max - out_min) / (in_max - in_min)
+
+
 class Particle:
     """Estructura de una partícula"""
 
-    position: np.ndarray
-    velocity: np.ndarray
-    color: np.ndarray
-    life: float
-    size: float
+    def __init__(
+        self,
+        position: np.ndarray,
+        velocity: np.ndarray,
+        color: np.ndarray,
+        life: float,
+        size: float,
+    ):
+        self.position = position
+        self.velocity = velocity
+        self.color = color
+        self.life = life
+        self.size = size
+        self.gravity = np.array([0.0, -1, 0.0], dtype=np.float32)
+
+    def update(self, delta_time, height):
+        # Aplicar gravedad
+        self.velocity += self.gravity * delta_time
+
+        # Actualizar posición
+        self.position += self.velocity * delta_time
+
+        # Actualizar vida
+        # life -= delta_time * 0.5
+        self.color[3] = self.life  # Alpha
+        self.size = 10.0 * self.life
+
+        if self.position[1] - (self.size / 2) < -height:
+            self.position[1] = self.size / 2 - height
+            self.velocity[1] *= -0.5  # rebote con pérdida de energía
 
 
 class ParticleSystem:
@@ -25,7 +54,7 @@ class ParticleSystem:
     def __init__(self, max_particles: int = 10000):
         self.max_particles = max_particles
         self.particles: List[Particle] = []
-        self.gravity = np.array([0.0, -9.8, 0.0], dtype=np.float32)
+        self.gravity = np.array([0.0, -1, 0.0], dtype=np.float32)
 
         # Shaders
         self.vertex_shader = """
@@ -102,9 +131,9 @@ class ParticleSystem:
             # Velocidad aleatoria
             velocity = np.array(
                 [
-                    random.uniform(-2.0, 2.0),
-                    random.uniform(-2.0, 2.0),
-                    random.uniform(-2.0, 2.0),
+                    0,  # random.uniform(-2.0, 2.0),
+                    0,  # random.uniform(-2.0, 2.0),
+                    0,  # random.uniform(-2.0, 2.0),
                 ],
                 dtype=np.float32,
             )
@@ -135,20 +164,9 @@ class ParticleSystem:
         particles_to_remove = []
 
         for i, particle in enumerate(self.particles):
-            # Aplicar gravedad
-            particle.velocity += self.gravity * delta_time
-
-            # Actualizar posición
-            particle.position += particle.velocity * delta_time
-
-            # Actualizar vida
-            particle.life -= delta_time * 0.5
-            particle.color[3] = particle.life  # Alpha
-            particle.size = 10.0 * particle.life
-
-            # Marcar para eliminación si murió
-            if particle.life <= 0.0:
-                particles_to_remove.append(i)
+            particle.update(delta_time, 7)
+            if particle.life < 0:
+                particles_to_remove.append(particle)
 
         # Eliminar partículas muertas (en orden inverso)
         for i in reversed(particles_to_remove):
@@ -161,7 +179,10 @@ class ParticleSystem:
 
         # Preparar datos para el buffer
         particle_data = []
+
         for p in self.particles:
+
+            print(p.position)
             particle_data.extend(p.position)
             particle_data.extend(p.color)
             particle_data.append(p.size)
@@ -213,6 +234,8 @@ class ParticleSimulator:
         self.window = None
         self.particle_system = None
         self.last_time = 0.0
+        self.last_point = 0.0
+        self.clicked = False
 
     def init(self):
         """Inicializar GLFW y OpenGL"""
@@ -240,7 +263,7 @@ class ParticleSimulator:
         glClearColor(0.1, 0.1, 0.15, 1.0)
 
         # Crear sistema de partículas
-        self.particle_system = ParticleSystem(max_particles=10000)
+        self.particle_system = ParticleSystem(max_particles=1000)
         self.particle_system.init_gl()
 
         self.last_time = glfw.get_time()
@@ -257,8 +280,20 @@ class ParticleSimulator:
             glfw.set_window_should_close(self.window, True)
 
         # Emitir partículas con clic del mouse
-        if glfw.get_mouse_button(self.window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS:
-            self.particle_system.emit(np.array([0.0, 2.0, 0.0], dtype=np.float32), 100)
+        if (
+            glfw.get_mouse_button(self.window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS
+            and not self.clicked
+        ):
+            (x_pixel, y_pixel) = glfw.get_cursor_pos(self.window)
+            x_ndc = 0.5
+            y_ndc = 0.5
+            self.particle_system.emit(
+                np.array([x_ndc, y_ndc, 0.0], dtype=np.float32), 1
+            )
+            self.clicked = True
+
+        if glfw.get_mouse_button(self.window, glfw.MOUSE_BUTTON_RIGHT) == glfw.PRESS:
+            self.clicked = False
 
     def run(self):
         """Loop principal"""
@@ -271,8 +306,12 @@ class ParticleSimulator:
             # Procesar input
             self.process_input()
 
-            # Emitir partículas continuamente
-            self.particle_system.emit(np.array([0.0, 2.0, 0.0], dtype=np.float32), 50)
+            # if current_time - self.last_point > 1:
+            #     # Emitir partículas continuamente
+            #     self.particle_system.emit(
+            #         np.array([0.0, 0.0, 0.0], dtype=np.float32), 1
+            #     )
+            #     self.last_point = current_time
 
             # Actualizar partículas
             self.particle_system.update(delta_time)
