@@ -1,37 +1,32 @@
-import pygame
-import random
-import math
-
-G = 200  # px/s^2
+import numpy as np
 
 
 class Particle:
-    def __init__(self, x, y, angle):
-        self.x = x
-        self.y = y
-        self.vx = 0
-        self.vy = 0
-        self.color = (
-            random.randint(150, 255),
-            random.randint(150, 255),
-            random.randint(150, 255),
-        )
-        self.mass = random.randint(1, 5)
-        self.radius = self.mass * 2
+    """Estructura de una partícula"""
 
-    def update(self, width, height, dt):
-        # Movimiento
-        # Gravity
-        self.vy += G * dt
+    def __init__(
+        self,
+        position: np.ndarray,
+        velocity: np.ndarray,
+        color: np.ndarray,
+        life: float,
+        size: float,
+        gravity: float,
+    ):
+        self.position = position
+        self.velocity = velocity
+        self.color = color
+        self.life = life
+        self.size = size
+        self.gravity = np.array([0.0, gravity, 0.0], dtype=np.float32)
 
-        # actualizar posición
-        self.x += self.vx * dt
-        self.y += self.vy * dt
+    def update(self, delta_time):
+        # Apply gravity
+        self.velocity += self.gravity * delta_time
 
-        # colisión con el piso
-        if self.y + self.radius > height:
-            self.y = height - self.radius
-            self.vy *= -0.8  # rebote con pérdida de energía
+        # Update position
+        self.position += self.velocity * delta_time
 
-    def draw(self, surface):
-        pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), self.radius)
+        # Update life and color
+        self.life -= delta_time * 0.5
+        self.color[3] = self.life

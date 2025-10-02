@@ -1,4 +1,4 @@
-from particle import Particle
+from old.particle_old import Particle
 import math
 import random
 
