@@ -3,7 +3,6 @@ import glfw
 from OpenGL.GL import *
 from OpenGL.GL.shaders import compileProgram, compileShader
 import pyrr
-from dataclasses import dataclass
 from typing import List
 import random
 
@@ -103,7 +102,7 @@ class ParticleSystem:
         # self.gravity = np.array([0.0, -1, 0.0], dtype=np.float32)
 
         # Configuración de colisiones
-        self.cell_size = 100  # Tamaño de celda del grid
+        self.cell_size = 15  # Tamaño de celda del grid
         self.restitution = 0.5  # Coeficiente de rebote entre partículas
         self.enable_collisions = True  # Activar/desactivar colisiones
 
@@ -454,7 +453,7 @@ class ParticleSimulator:
         self.particle_system = None
         self.last_time = 0.0
         self.last_point = 0.0
-        self.clicked = False
+        self.particle_emmited = False
 
     def init(self):
         """Inicializar GLFW y OpenGL"""
@@ -499,14 +498,21 @@ class ParticleSimulator:
             glfw.set_window_should_close(self.window, True)
 
         # Emitir partículas con clic del mouse
-        if glfw.get_mouse_button(self.window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS:
+        if (
+            glfw.get_mouse_button(self.window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS
+            and not self.particle_emmited
+        ):
+            self.particle_emmited = True
             (x_pixel, y_pixel) = glfw.get_cursor_pos(self.window)
             y_pixel = self.height - y_pixel
             self.particle_system.emit(
                 np.array([x_pixel, y_pixel, 0.0], dtype=np.float32), 1
             )
-        if glfw.get_mouse_button(self.window, glfw.MOUSE_BUTTON_RIGHT) == glfw.PRESS:
-            print("hola")
+
+        if glfw.get_mouse_button(self.window, glfw.MOUSE_BUTTON_LEFT) == glfw.RELEASE:
+            self.particle_emmited = False
+
+        if glfw.get_key(self.window, glfw.KEY_R) == glfw.PRESS:
             self.particle_system.reset()
 
     def run(self):
@@ -520,13 +526,13 @@ class ParticleSimulator:
             # Procesar input
             self.process_input()
 
-            if current_time - self.last_point > 1:
-                # Emitir partículas continuamente
-                self.particle_system.emit(
-                    np.array([self.width / 2, self.height / 2, 0.0], dtype=np.float32),
-                    1,
-                )
-                self.last_point = current_time
+            # if current_time - self.last_point > 1:
+            #     # Emitir partículas continuamente
+            #     self.particle_system.emit(
+            #         np.array([self.width / 2, self.height / 2, 0.0], dtype=np.float32),
+            #         1,
+            #     )
+            #     self.last_point = current_time
 
             # Actualizar partículas
             self.particle_system.update(delta_time, self.width, self.height)
