@@ -25,6 +25,7 @@ class ParticleSystem:
         self.cell_size = self.particle_size * 1.5  # Tamaño de celda del grid
         self.restitution = 0.5  # Coeficiente de rebote entre partículas
         self.enable_collisions = True  # Activar/desactivar colisiones
+        self.friction_coefficient = 0.0001  # Fricción tangencial (0.0-1.0)
 
         # Shaders
         self.vertex_shader = """
@@ -219,7 +220,7 @@ class ParticleSystem:
     def _check_and_resolve_collision(self, particle_a: Particle, particle_b: Particle):
         """
         Detectar y resolver colisión entre dos partículas.
-        Implementa separación de posiciones y respuesta de velocidad.
+        Implementa separación de posiciones y respuesta de velocidad considerando el ángulo.
         """
         # Calcular vector entre partículas
         delta = particle_a.position - particle_b.position
@@ -228,10 +229,10 @@ class ParticleSystem:
         # Radio combinado
         min_distance = particle_a.size / 2 + particle_b.size / 2
 
-        # Chequear si hay colisión
-        if distance < min_distance and distance > 0.0001:
-            # Normalizar dirección
-            direction = delta / distance
+        # Chequear si hay colisión (con pequeño margen de tolerancia)
+        if distance < min_distance and distance > 0.001:
+            # Normalizar dirección (normal de colisión)
+            normal = delta / distance
 
             # 1. SEPARAR PARTÍCULAS CON LÍMITE
             overlap = min_distance - distance
@@ -241,46 +242,76 @@ class ParticleSystem:
             overlap = min(overlap, MAX_SEPARATION_PER_FRAME)
 
             # Separar con un pequeño extra para evitar que se queden pegadas
-            SEPARATION_BIAS = 0.01  # Pequeño empujón extra
+            SEPARATION_BIAS = 0.01
             effective_overlap = overlap + SEPARATION_BIAS
 
             # Mover cada partícula la mitad del overlap
-            separation = direction * (effective_overlap * 0.5)
+            separation = normal * (effective_overlap * 0.5)
             particle_a.position += separation
             particle_b.position -= separation
 
-            # 2. RESOLVER VELOCIDADES (Colisión elástica mejorada)
+            # 2. CALCULAR VELOCIDAD RELATIVA
             relative_velocity = particle_a.velocity - particle_b.velocity
-            velocity_along_normal = np.dot(relative_velocity, direction)
+
+            # 3. DESCOMPONER EN COMPONENTES NORMAL Y TANGENCIAL
+            # Componente normal (perpendicular a la superficie de contacto)
+            velocity_normal = np.dot(relative_velocity, normal)
 
             # Solo resolver si las partículas se están acercando
-            # (evita resolver colisiones múltiples)
-            if velocity_along_normal < 0:
-                # Ajustar restitución según penetración
-                penetration_ratio = overlap / min_distance
+            if velocity_normal < 0:
+                # Vector velocidad normal
+                vel_normal_vector = normal * velocity_normal
 
-                # Si están muy superpuestas, reducir rebote para estabilidad
+                # Vector velocidad tangencial (paralelo a la superficie)
+                vel_tangent_vector = relative_velocity - vel_normal_vector
+
+                # 4. AJUSTAR RESTITUCIÓN SEGÚN PENETRACIÓN
+                penetration_ratio = overlap / min_distance
                 if penetration_ratio > 0.5:
                     effective_restitution = self.restitution * 0.4
                 else:
                     effective_restitution = self.restitution
 
-                # Calcular impulso
-                # Fórmula: j = -(1 + e) * v_rel · n / (1/m_a + 1/m_b)
-                # Con masas iguales: j = -(1 + e) * v_rel · n / 2
-                impulse_magnitude = (
-                    -(1.0 + effective_restitution) * velocity_along_normal
-                )
-                impulse_magnitude /= 2.0  # Dividir entre ambas partículas
+                # 5. CALCULAR IMPULSO NORMAL (rebote)
+                # Fórmula: j_n = -(1 + e) * v_n / (1/m_a + 1/m_b)
+                # Con masas iguales: j_n = -(1 + e) * v_n / 2
+                impulse_normal = -(1.0 + effective_restitution) * velocity_normal / 2.0
 
-                # Vector de impulso
-                impulse = direction * impulse_magnitude
+                # 6. CALCULAR IMPULSO TANGENCIAL (fricción)
+                # La fricción depende del impulso normal
+                tangent_speed = np.linalg.norm(vel_tangent_vector)
 
-                # Aplicar impulso a las velocidades
-                particle_a.velocity += impulse
-                particle_b.velocity -= impulse
+                if tangent_speed > 0.001:
+                    # Dirección tangencial normalizada
+                    tangent_direction = vel_tangent_vector / tangent_speed
 
-                # 3. LIMITAR VELOCIDADES (evita que salgan disparadas)
+                    # Impulso de fricción (limitado por coeficiente de fricción)
+                    # Fricción de Coulomb: f <= μ * N
+                    max_friction_impulse = self.friction_coefficient * abs(
+                        impulse_normal
+                    )
+
+                    # El impulso tangencial intenta detener el movimiento relativo
+                    # pero está limitado por la fricción máxima
+                    impulse_tangent_magnitude = min(
+                        tangent_speed / 2.0, max_friction_impulse
+                    )
+
+                    # Vector de impulso tangencial (opuesto al movimiento)
+                    impulse_tangent_vector = (
+                        -tangent_direction * impulse_tangent_magnitude
+                    )
+                else:
+                    impulse_tangent_vector = np.zeros(3, dtype=np.float32)
+
+                # 7. IMPULSO TOTAL (normal + tangencial)
+                impulse_vector = normal * impulse_normal + impulse_tangent_vector
+
+                # 8. APLICAR IMPULSOS A LAS PARTÍCULAS
+                particle_a.velocity += impulse_vector
+                particle_b.velocity -= impulse_vector
+
+                # 9. LIMITAR VELOCIDADES (evita que salgan disparadas)
                 MAX_VELOCITY = 15.0
 
                 speed_a = np.linalg.norm(particle_a.velocity)
@@ -290,6 +321,24 @@ class ParticleSystem:
                 speed_b = np.linalg.norm(particle_b.velocity)
                 if speed_b > MAX_VELOCITY:
                     particle_b.velocity = (particle_b.velocity / speed_b) * MAX_VELOCITY
+
+        elif distance < 0.001:
+            # Caso extremo: partículas exactamente en el mismo punto
+            # Separarlas en dirección aleatoria
+            random_direction = np.array(
+                [random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1)],
+                dtype=np.float32,
+            )
+            random_direction = random_direction / (
+                np.linalg.norm(random_direction) + 0.0001
+            )
+
+            particle_a.position += random_direction * particle_a.radius
+            particle_b.position -= random_direction * particle_b.radius
+
+            # Darles velocidades opuestas pequeñas
+            particle_a.velocity += random_direction * 0.5
+            particle_b.velocity -= random_direction * 0.5
 
     def build_spatial_grid(self) -> dict:
         """
