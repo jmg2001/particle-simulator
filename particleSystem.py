@@ -312,7 +312,7 @@ class ParticleSystem:
                 particle_b.velocity -= impulse_vector
 
                 # 9. LIMITAR VELOCIDADES (evita que salgan disparadas)
-                MAX_VELOCITY = 15.0
+                MAX_VELOCITY = 1000
 
                 speed_a = np.linalg.norm(particle_a.velocity)
                 if speed_a > MAX_VELOCITY:
@@ -333,8 +333,8 @@ class ParticleSystem:
                 np.linalg.norm(random_direction) + 0.0001
             )
 
-            particle_a.position += random_direction * particle_a.radius
-            particle_b.position -= random_direction * particle_b.radius
+            particle_a.position += random_direction * particle_a.size / 2
+            particle_b.position -= random_direction * particle_b.size / 2
 
             # Darles velocidades opuestas pequeñas
             particle_a.velocity += random_direction * 0.5

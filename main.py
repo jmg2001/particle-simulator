@@ -73,7 +73,7 @@ class ParticleSimulator:
             (x_pixel, y_pixel) = glfw.get_cursor_pos(self.window)
             y_pixel = self.height - y_pixel
             self.particle_system.emit(
-                np.array([x_pixel, y_pixel, 0.0], dtype=np.float32), 1
+                np.array([x_pixel, y_pixel, 0.0], dtype=np.float32), 10
             )
 
         if glfw.get_mouse_button(self.window, glfw.MOUSE_BUTTON_LEFT) == glfw.RELEASE:
@@ -94,11 +94,13 @@ class ParticleSimulator:
             self.process_input()
 
             if self.emmit_particle_periodly:
+                # Every second
                 if current_time - self.last_point > 1:
                     # Emitir partículas continuamente
                     self.particle_system.emit(
                         np.array(
-                            [self.width / 2, self.height / 2, 0.0], dtype=np.float32
+                            [random.randint(0, self.width), self.height / 2, 0.0],
+                            dtype=np.float32,
                         ),
                         1,
                     )
