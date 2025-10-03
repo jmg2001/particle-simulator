@@ -4,6 +4,7 @@ from OpenGL.GL.shaders import compileProgram, compileShader
 import glfw
 
 import pyrr
+import math
 
 from particle import *
 from particleSystem import *
@@ -20,7 +21,36 @@ class ParticleSimulator:
         self.last_time = 0.0
         self.last_point = 0.0
         self.emmit_particle_periodly = False
+
+        self.mouse_particle = None
         self.particle_emmited = False
+
+        self.last_mouse_pos = None
+        self.last_time = glfw.get_time()
+        self.mouse_velocity = [0.0, 0.0]
+        self.alpha = 0.2  # factor de suavizado
+
+    def update_mouse_velocity(self, current_pos):
+        current_time = glfw.get_time()
+        dt = current_time - self.last_time
+        self.last_time = current_time
+
+        if self.last_mouse_pos is not None and dt > 0:
+            dx = current_pos[0] - self.last_mouse_pos[0]
+            dy = current_pos[1] - self.last_mouse_pos[1]
+            vx = dx / dt
+            vy = dy / dt
+
+            k = 0.8
+
+            self.mouse_velocity[0] = (
+                self.alpha * vx + (1 - self.alpha) * self.mouse_velocity[0]
+            ) * k
+            self.mouse_velocity[1] = (
+                self.alpha * vy + (1 - self.alpha) * self.mouse_velocity[1]
+            ) * k
+
+        self.last_mouse_pos = current_pos
 
     def init(self):
         """Inicializar GLFW y OpenGL"""
@@ -59,25 +89,76 @@ class ParticleSimulator:
         self.height = height
         glViewport(0, 0, width, height)
 
+    def clamp_velocity(self, vmin=-1, vmax=1):
+        MAX_VEL = 100
+        MIN_VEL = -100
+
+        if self.mouse_velocity[0] < 0:
+            if self.mouse_velocity[0] < MIN_VEL:
+                self.mouse_velocity[0] = MIN_VEL
+        else:
+            if self.mouse_velocity[0] > MAX_VEL:
+                self.mouse_velocity[0] = MAX_VEL
+
+        if self.mouse_velocity[1] < 0:
+            if self.mouse_velocity[1] < MIN_VEL:
+                self.mouse_velocity[1] = MIN_VEL
+        else:
+            if self.mouse_velocity[1] > MAX_VEL:
+                self.mouse_velocity[1] = MAX_VEL
+
     def process_input(self):
         """Procesar entrada del usuario"""
         if glfw.get_key(self.window, glfw.KEY_ESCAPE) == glfw.PRESS:
             glfw.set_window_should_close(self.window, True)
 
         # Emitir partículas con clic del mouse
-        if (
-            glfw.get_mouse_button(self.window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS
-            and not self.particle_emmited
-        ):
-            self.particle_emmited = True
+        if glfw.get_mouse_button(self.window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS:
+
             (x_pixel, y_pixel) = glfw.get_cursor_pos(self.window)
             y_pixel = self.height - y_pixel
-            self.particle_system.emit(
-                np.array([x_pixel, y_pixel, 0.0], dtype=np.float32), 10
-            )
+
+            self.update_mouse_velocity([x_pixel, y_pixel])
+
+            self.particle_emmited = False
+
+            if self.mouse_particle == None:
+                # Velocity
+                velocity = np.array([0, 0, 0], dtype=np.float32)
+                # Random Color
+                color = np.array(
+                    [
+                        random.uniform(0.5, 1.0),
+                        random.uniform(0.5, 1.0),
+                        random.uniform(0.5, 1.0),
+                        1.0,
+                    ],
+                    dtype=np.float32,
+                )
+                particle = Particle(
+                    position=np.array([x_pixel, y_pixel, 0.0], dtype=np.float32),
+                    velocity=velocity,
+                    color=color,
+                    life=10.0,
+                    size=15.0,
+                    gravity=G,
+                )
+
+                self.mouse_particle = particle
+
+            else:
+                self.mouse_particle.position = np.array(
+                    [x_pixel, y_pixel, 0.0], dtype=np.float32
+                )
 
         if glfw.get_mouse_button(self.window, glfw.MOUSE_BUTTON_LEFT) == glfw.RELEASE:
-            self.particle_emmited = False
+            if self.mouse_particle != None:
+                self.clamp_velocity()
+                self.mouse_particle.velocity[0] = self.mouse_velocity[0]
+                self.mouse_particle.velocity[1] = self.mouse_velocity[1]
+                self.particle_system.emit_mouse(self.mouse_particle)
+                self.mouse_particle = None
+                self.particle_emmited = True
 
         if glfw.get_key(self.window, glfw.KEY_R) == glfw.PRESS:
             self.particle_system.reset()
@@ -107,7 +188,12 @@ class ParticleSimulator:
                     self.last_point = current_time
 
             # Actualizar partículas
-            self.particle_system.update(delta_time, self.width, self.height)
+            if self.particle_emmited != None:
+                self.particle_system.update(
+                    delta_time, self.width, self.height, self.mouse_particle
+                )
+            else:
+                self.particle_system.update(delta_time, self.width, self.height)
 
             # Renderizar
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)

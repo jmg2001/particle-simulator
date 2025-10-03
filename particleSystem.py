@@ -18,6 +18,7 @@ class ParticleSystem:
     def __init__(self, max_particles: int = 10000):
         self.max_particles = max_particles
         self.particles: List[Particle] = []
+        self.finalParticles: List[Particle] = []
         # self.gravity = np.array([0.0, -1, 0.0], dtype=np.float32)
 
         # Configuración de colisiones
@@ -93,6 +94,9 @@ class ParticleSystem:
 
         glBindVertexArray(0)
 
+    def emit_mouse(self, particle):
+        self.particles.append(particle)
+
     def emit(self, origin: np.ndarray, count: int):
         """Emitir nuevas partículas"""
         for _ in range(count):
@@ -129,10 +133,11 @@ class ParticleSystem:
     def reset(self):
         self.particles = []
 
-    def update(self, delta_time: float, width, height):
+    def update(self, delta_time: float, width, height, mouse_particle=None):
         """Actualizar todas las partículas"""
         particles_to_remove = []
 
+        print(len(self.particles))
         # 1. Aplicar fuerzas y actualizar posiciones
         for i, particle in enumerate(self.particles):
             particle.update(delta_time)
@@ -152,15 +157,19 @@ class ParticleSystem:
         for i in reversed(particles_to_remove):
             self.particles.pop(i)
 
+        self.finalParticles = self.particles.copy()
+        if mouse_particle != None:
+            self.finalParticles.append(mouse_particle)
+
     def render(self, projection: np.ndarray, view: np.ndarray):
         """Renderizar todas las partículas"""
-        if not self.particles:
+        if not self.finalParticles:
             return
 
         # Preparar datos para el buffer
         particle_data = []
 
-        for p in self.particles:
+        for p in self.finalParticles:
             particle_data.extend(p.position)
             particle_data.extend(p.color)
             particle_data.append(p.size)
@@ -189,7 +198,7 @@ class ParticleSystem:
         glEnable(GL_PROGRAM_POINT_SIZE)
 
         # Dibujar
-        glDrawArrays(GL_POINTS, 0, len(self.particles))
+        glDrawArrays(GL_POINTS, 0, len(self.finalParticles))
 
         glBindVertexArray(0)
 
