@@ -1,15 +1,11 @@
 from OpenGL.GL import *
 from OpenGL.GL.shaders import compileProgram, compileShader
 
-
 from typing import List
 
 import random
 
 from particle import *
-
-
-G = -200
 
 
 class ParticleSystem:
@@ -95,40 +91,19 @@ class ParticleSystem:
         glBindVertexArray(0)
 
     def emit_mouse(self, particle):
+        if len(self.particles) >= self.max_particles:
+            return
         self.particles.append(particle)
 
-    def emit(self, origin: np.ndarray, count: int):
+    def emit(self, particle: Particle = None, count: int = 1):
         """Emitir nuevas partículas"""
         for _ in range(count):
             if len(self.particles) >= self.max_particles:
                 break
-
-            # Velocity 0
-            velocity = np.array(
-                [random.uniform(-2, 2), random.uniform(-2, 2), 0], dtype=np.float32
-            )
-
-            # Random Color
-            color = np.array(
-                [
-                    random.uniform(0.5, 1.0),
-                    random.uniform(0.5, 1.0),
-                    random.uniform(0.5, 1.0),
-                    1.0,
-                ],
-                dtype=np.float32,
-            )
-
-            particle = Particle(
-                position=origin.copy(),
-                velocity=velocity,
-                color=color,
-                life=10.0,
-                size=self.particle_size,
-                gravity=G,
-            )
-
-            self.particles.append(particle)
+            if particle != None:
+                self.particles.append(particle)
+            else:
+                self.particles.append(Particle())
 
     def reset(self):
         self.particles = []
@@ -136,30 +111,29 @@ class ParticleSystem:
     def update(self, delta_time: float, width, height, mouse_particle=None):
         """Actualizar todas las partículas"""
         particles_to_remove = []
-
-        print(len(self.particles))
         # 1. Aplicar fuerzas y actualizar posiciones
         for i, particle in enumerate(self.particles):
             particle.update(delta_time)
-
             # Marcar para eliminación si murió
             if particle.life <= 0.0:
                 particles_to_remove.append(i)
 
-        self.resolver_collisions_with_world(width, height)
-
-        # 2. Resolver colisiones entre partículas usando spatial grid
         if len(self.particles) > 1:
+            # 2. Resolver colisiones con los limites
+            self.resolver_collisions_with_world(width, height)
+
+            # 3. Resolver colisiones entre partículas usando spatial grid
             grid = self.build_spatial_grid()
             self.resolve_collisions_with_grid(grid)
 
-        # Eliminar partículas muertas (en orden inverso)
-        for i in reversed(particles_to_remove):
-            self.particles.pop(i)
+            # Eliminar partículas muertas (en orden inverso)
+            for i in reversed(particles_to_remove):
+                self.particles.pop(i)
 
         self.finalParticles = self.particles.copy()
         if mouse_particle != None:
             self.finalParticles.append(mouse_particle)
+            print("g")
 
     def render(self, projection: np.ndarray, view: np.ndarray):
         """Renderizar todas las partículas"""
@@ -375,24 +349,31 @@ class ParticleSystem:
 
     def resolver_collisions_with_world(self, width, height):
         for particle in self.particles:
+            restitution = 0.6
             # Suelo
             if particle.position[1] - (particle.size / 2) < 0:
                 particle.position[1] = particle.size / 2
                 particle.velocity[1] = (
-                    -particle.velocity[1] * 0.6
+                    -particle.velocity[1] * restitution
+                )  # rebote con pérdida de energía
+
+            if particle.position[1] + (particle.size / 2) > height:
+                particle.position[1] = height - particle.size / 2
+                particle.velocity[1] = (
+                    -particle.velocity[1] * restitution
                 )  # rebote con pérdida de energía
 
             # Paredes
             if particle.position[0] - (particle.size / 2) < 0:
                 particle.position[0] = particle.size / 2
                 particle.velocity[0] = (
-                    -particle.velocity[0] * 0.6
+                    -particle.velocity[0] * restitution
                 )  # rebote con pérdida de energía
 
             if particle.position[0] + (particle.size / 2) > width:
                 particle.position[0] = width - particle.size / 2
                 particle.velocity[0] = (
-                    -particle.velocity[0] * 0.6
+                    -particle.velocity[0] * restitution
                 )  # rebote con pérdida de energía
 
     def resolve_collisions_with_grid(self, grid: dict):

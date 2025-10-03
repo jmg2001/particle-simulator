@@ -1,13 +1,11 @@
-from OpenGL.GL import *
-from OpenGL.GL.shaders import compileProgram, compileShader
-
 import glfw
 
 import pyrr
-import math
 
 from particle import *
 from particleSystem import *
+
+from utils import *
 
 
 class ParticleSimulator:
@@ -17,40 +15,24 @@ class ParticleSimulator:
         self.width = width
         self.height = height
         self.window = None
+
+        self.view = None
+        self.projection = None
+
         self.particle_system = None
         self.last_time = 0.0
-        self.last_point = 0.0
-        self.emmit_particle_periodly = False
+
+        self.last_time_particle_emitted = 0.0
+        self.emit_particle_periodically = False
 
         self.mouse_particle = None
-        self.particle_emmited = False
+        self.mosue_particle_emitted = False
 
         self.last_mouse_pos = None
-        self.last_time = glfw.get_time()
+        self.last_mouse_time = 0.0
         self.mouse_velocity = [0.0, 0.0]
-        self.alpha = 0.2  # factor de suavizado
-
-    def update_mouse_velocity(self, current_pos):
-        current_time = glfw.get_time()
-        dt = current_time - self.last_time
-        self.last_time = current_time
-
-        if self.last_mouse_pos is not None and dt > 0:
-            dx = current_pos[0] - self.last_mouse_pos[0]
-            dy = current_pos[1] - self.last_mouse_pos[1]
-            vx = dx / dt
-            vy = dy / dt
-
-            k = 0.8
-
-            self.mouse_velocity[0] = (
-                self.alpha * vx + (1 - self.alpha) * self.mouse_velocity[0]
-            ) * k
-            self.mouse_velocity[1] = (
-                self.alpha * vy + (1 - self.alpha) * self.mouse_velocity[1]
-            ) * k
-
-        self.last_mouse_pos = current_pos
+        self.mouse_alpha = 0.2  # factor de suavizado
+        self.particles_emitted_with_mouse = 10
 
     def init(self):
         """Inicializar GLFW y OpenGL"""
@@ -83,15 +65,98 @@ class ParticleSimulator:
 
         self.last_time = glfw.get_time()
 
-    def framebuffer_size_callback(self, window, width, height):
-        """Callback para redimensionar ventana"""
-        self.width = width
-        self.height = height
-        glViewport(0, 0, width, height)
+        # Define los límites del mundo 2D (puedes usar el tamaño de la ventana)
+        LEFT_LIMIT, RIGHT_LIMIT, BOTTOM_LIMIT, TOP_LIMIT = [
+            0.0,
+            self.width,
+            0.0,
+            self.height,
+        ]
+        NEAR = -1.0
+        FAR = 1.0
 
-    def clamp_velocity(self, vmin=-1, vmax=1):
-        MAX_VEL = 100
-        MIN_VEL = -100
+        # Matriz de proyección ortográfica
+        self.projection = pyrr.matrix44.create_orthogonal_projection_matrix(
+            LEFT_LIMIT, RIGHT_LIMIT, BOTTOM_LIMIT, TOP_LIMIT, NEAR, FAR
+        )
+        self.view = pyrr.matrix44.create_identity()
+
+    def run(self):
+        """Loop principal"""
+        while not glfw.window_should_close(self.window):
+            # Calcular delta time
+            current_time = glfw.get_time()
+            delta_time = current_time - self.last_time
+            self.last_time = current_time
+
+            # Procesar input
+            self.process_input()
+
+            if self.emit_particle_periodically:
+                # Every second
+                if current_time - self.last_time_particle_emitted > 1:
+                    # Emitir partículas continuamente
+                    self.particle_system.emit(
+                        particle=Particle(
+                            position=get_random_position(self.width, self.height)
+                        )
+                    )
+                    self.last_time_particle_emitted = current_time
+
+            # Actualizar partículas
+            self.particle_system.update(
+                delta_time, self.width, self.height, self.mouse_particle
+            )
+
+            # Renderizar
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+            # # Matrices de proyección y vista
+            # projection = pyrr.matrix44.create_perspective_projection_matrix(
+            #     45.0, self.width / self.height, 0.1, 100.0
+            # )
+
+            # view = pyrr.matrix44.create_look_at(
+            #     np.array([0.0, 3.0, 15.0]),
+            #     np.array([0.0, 0.0, 0.0]),
+            #     np.array([0.0, 1.0, 0.0]),
+            # )
+
+            self.particle_system.render(self.projection, self.view)
+
+            # Swap buffers y poll eventos
+            glfw.swap_buffers(self.window)
+            glfw.poll_events()
+
+        # Limpieza
+        self.particle_system.cleanup()
+        glfw.terminate()
+
+    def update_mouse_velocity(self, current_pos):
+        current_time = glfw.get_time()
+        dt = current_time - self.last_time
+        self.last_mouse_time = current_time
+
+        if self.last_mouse_pos is not None and dt > 0:
+            dx = current_pos[0] - self.last_mouse_pos[0]
+            dy = current_pos[1] - self.last_mouse_pos[1]
+            vx = dx / dt
+            vy = dy / dt
+
+            k = 0.8
+
+            self.mouse_velocity[0] = (
+                self.mouse_alpha * vx + (1 - self.mouse_alpha) * self.mouse_velocity[0]
+            ) * k
+            self.mouse_velocity[1] = (
+                self.mouse_alpha * vy + (1 - self.mouse_alpha) * self.mouse_velocity[1]
+            ) * k
+
+        self.last_mouse_pos = current_pos
+
+    def clamp_mouse_velocity(self, vmin=-1, vmax=1):
+        MAX_VEL = 300
+        MIN_VEL = -300
 
         if self.mouse_velocity[0] < 0:
             if self.mouse_velocity[0] < MIN_VEL:
@@ -107,6 +172,12 @@ class ParticleSimulator:
             if self.mouse_velocity[1] > MAX_VEL:
                 self.mouse_velocity[1] = MAX_VEL
 
+    def framebuffer_size_callback(self, window, width, height):
+        """Callback para redimensionar ventana"""
+        self.width = width
+        self.height = height
+        glViewport(0, 0, width, height)
+
     def process_input(self):
         """Procesar entrada del usuario"""
         if glfw.get_key(self.window, glfw.KEY_ESCAPE) == glfw.PRESS:
@@ -120,118 +191,33 @@ class ParticleSimulator:
 
             self.update_mouse_velocity([x_pixel, y_pixel])
 
-            self.particle_emmited = False
-
+            self.mosue_particle_emitted = False
             if self.mouse_particle == None:
-                # Velocity
-                velocity = np.array([0, 0, 0], dtype=np.float32)
-                # Random Color
-                color = np.array(
-                    [
-                        random.uniform(0.5, 1.0),
-                        random.uniform(0.5, 1.0),
-                        random.uniform(0.5, 1.0),
-                        1.0,
-                    ],
-                    dtype=np.float32,
-                )
-                particle = Particle(
-                    position=np.array([x_pixel, y_pixel, 0.0], dtype=np.float32),
-                    velocity=velocity,
-                    color=color,
-                    life=10.0,
-                    size=15.0,
-                    gravity=G,
-                )
-
-                self.mouse_particle = particle
-
+                self.mouse_particle = Particle()
             else:
-                self.mouse_particle.position = np.array(
-                    [x_pixel, y_pixel, 0.0], dtype=np.float32
-                )
+                self.mouse_particle.position[0] = x_pixel
+                self.mouse_particle.position[1] = y_pixel
 
         if glfw.get_mouse_button(self.window, glfw.MOUSE_BUTTON_LEFT) == glfw.RELEASE:
             if self.mouse_particle != None:
-                self.clamp_velocity()
+                self.clamp_mouse_velocity()
+
                 self.mouse_particle.velocity[0] = self.mouse_velocity[0]
                 self.mouse_particle.velocity[1] = self.mouse_velocity[1]
-                self.particle_system.emit_mouse(self.mouse_particle)
+
+                self.particle_system.emit(
+                    Particle(
+                        color=self.mouse_particle.color,
+                        velocity=self.mouse_particle.velocity,
+                        position=self.mouse_particle.position,
+                    ),
+                )
+
                 self.mouse_particle = None
-                self.particle_emmited = True
+                self.mosue_particle_emitted = True
 
         if glfw.get_key(self.window, glfw.KEY_R) == glfw.PRESS:
             self.particle_system.reset()
-
-    def run(self):
-        """Loop principal"""
-        while not glfw.window_should_close(self.window):
-            # Calcular delta time
-            current_time = glfw.get_time()
-            delta_time = current_time - self.last_time
-            self.last_time = current_time
-
-            # Procesar input
-            self.process_input()
-
-            if self.emmit_particle_periodly:
-                # Every second
-                if current_time - self.last_point > 1:
-                    # Emitir partículas continuamente
-                    self.particle_system.emit(
-                        np.array(
-                            [random.randint(0, self.width), self.height / 2, 0.0],
-                            dtype=np.float32,
-                        ),
-                        1,
-                    )
-                    self.last_point = current_time
-
-            # Actualizar partículas
-            if self.particle_emmited != None:
-                self.particle_system.update(
-                    delta_time, self.width, self.height, self.mouse_particle
-                )
-            else:
-                self.particle_system.update(delta_time, self.width, self.height)
-
-            # Renderizar
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-
-            # Define los límites del mundo 2D (puedes usar el tamaño de la ventana)
-            left = 0.0
-            right = self.width
-            bottom = 0.0
-            top = self.height
-            near = -1.0
-            far = 1.0
-
-            # Matriz de proyección ortográfica
-            projection = pyrr.matrix44.create_orthogonal_projection_matrix(
-                left, right, bottom, top, near, far
-            )
-            view = pyrr.matrix44.create_identity()
-
-            # # Matrices de proyección y vista
-            # projection = pyrr.matrix44.create_perspective_projection_matrix(
-            #     45.0, self.width / self.height, 0.1, 100.0
-            # )
-
-            # view = pyrr.matrix44.create_look_at(
-            #     np.array([0.0, 3.0, 15.0]),
-            #     np.array([0.0, 0.0, 0.0]),
-            #     np.array([0.0, 1.0, 0.0]),
-            # )
-
-            self.particle_system.render(projection, view)
-
-            # Swap buffers y poll eventos
-            glfw.swap_buffers(self.window)
-            glfw.poll_events()
-
-        # Limpieza
-        self.particle_system.cleanup()
-        glfw.terminate()
 
 
 def main():
