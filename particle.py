@@ -2,7 +2,11 @@ import numpy as np
 from utils import *
 
 # CONSTANTS
-G = -200  # Gravity
+# Gravedad en unidades de OpenGL (basado en 9.81 m/s²)
+gravity_ms2 = 9.81 * 100
+world_scale = 1  # 1px = 1cm
+gravity = np.array([0.0, -gravity_ms2 * world_scale, 0.0], dtype=np.float32)
+G = gravity  # Gravity
 
 # Initial Velocity
 INITIAL_VELOCITY = np.array([0, 0, 0], dtype=np.float32)
@@ -33,11 +37,17 @@ class Particle:
         self.color = color if color is not None else default_color()
         self.life = life
         self.size = size
-        self.gravity = np.array([0.0, gravity, 0.0], dtype=np.float32)
+        self.gravity = gravity
 
     def update(self, delta_time):
+        # Aplicar damping global para estabilidad
+        DAMPING = 0.995
+
         # Apply gravity
         self.velocity += self.gravity * delta_time
+
+        # Aplicar damping (fricción con el aire)
+        self.velocity *= DAMPING
 
         # Update position
         self.position += self.velocity * delta_time

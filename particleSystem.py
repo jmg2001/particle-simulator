@@ -15,7 +15,6 @@ class ParticleSystem:
         self.max_particles = max_particles
         self.particles: List[Particle] = []
         self.finalParticles: List[Particle] = []
-        # self.gravity = np.array([0.0, -1, 0.0], dtype=np.float32)
 
         # Configuración de colisiones
         self.particle_size = 20  # px
@@ -23,6 +22,10 @@ class ParticleSystem:
         self.restitution = 0.5  # Coeficiente de rebote entre partículas
         self.enable_collisions = True  # Activar/desactivar colisiones
         self.friction_coefficient = 0.0001  # Fricción tangencial (0.0-1.0)
+
+        # CONFIGURACIÓN DE FÍSICA CON UNIDADES REALES
+        # Escala: 1 unidad OpenGL = 0.1 metros (10 cm)
+        self.world_scale = 0.1
 
         # Shaders
         self.vertex_shader = """
@@ -90,11 +93,6 @@ class ParticleSystem:
 
         glBindVertexArray(0)
 
-    def emit_mouse(self, particle):
-        if len(self.particles) >= self.max_particles:
-            return
-        self.particles.append(particle)
-
     def emit(self, particle: Particle = None, count: int = 1):
         """Emitir nuevas partículas"""
         for _ in range(count):
@@ -103,7 +101,7 @@ class ParticleSystem:
             if particle != None:
                 self.particles.append(particle)
             else:
-                self.particles.append(Particle())
+                self.particles.append(Particle(size=self.particle_size))
 
     def reset(self):
         self.particles = []
@@ -118,9 +116,10 @@ class ParticleSystem:
             if particle.life <= 0.0:
                 particles_to_remove.append(i)
 
-        if len(self.particles) > 1:
             # 2. Resolver colisiones con los limites
-            self.resolver_collisions_with_world(width, height)
+            self.resolver_collisions_with_world(particle, width, height)
+
+        if len(self.particles) > 1:
 
             # 3. Resolver colisiones entre partículas usando spatial grid
             grid = self.build_spatial_grid()
@@ -133,7 +132,6 @@ class ParticleSystem:
         self.finalParticles = self.particles.copy()
         if mouse_particle != None:
             self.finalParticles.append(mouse_particle)
-            print("g")
 
     def render(self, projection: np.ndarray, view: np.ndarray):
         """Renderizar todas las partículas"""
@@ -221,11 +219,11 @@ class ParticleSystem:
             overlap = min_distance - distance
 
             # Limitar separación máxima por frame (evita explosiones)
-            MAX_SEPARATION_PER_FRAME = 0.2
-            overlap = min(overlap, MAX_SEPARATION_PER_FRAME)
+            # MAX_SEPARATION_PER_FRAME = 0.2
+            # overlap = min(overlap, MAX_SEPARATION_PER_FRAME)
 
             # Separar con un pequeño extra para evitar que se queden pegadas
-            SEPARATION_BIAS = 0.01
+            SEPARATION_BIAS = 0  # 0.01
             effective_overlap = overlap + SEPARATION_BIAS
 
             # Mover cada partícula la mitad del overlap
@@ -347,34 +345,33 @@ class ParticleSystem:
 
         return grid
 
-    def resolver_collisions_with_world(self, width, height):
-        for particle in self.particles:
-            restitution = 0.6
-            # Suelo
-            if particle.position[1] - (particle.size / 2) < 0:
-                particle.position[1] = particle.size / 2
-                particle.velocity[1] = (
-                    -particle.velocity[1] * restitution
-                )  # rebote con pérdida de energía
+    def resolver_collisions_with_world(self, particle, width, height):
+        restitution = 0.6
+        # Suelo
+        if particle.position[1] - (particle.size / 2) < 0:
+            particle.position[1] = particle.size / 2
+            particle.velocity[1] = (
+                -particle.velocity[1] * restitution
+            )  # rebote con pérdida de energía
 
-            if particle.position[1] + (particle.size / 2) > height:
-                particle.position[1] = height - particle.size / 2
-                particle.velocity[1] = (
-                    -particle.velocity[1] * restitution
-                )  # rebote con pérdida de energía
+        if particle.position[1] + (particle.size / 2) > height:
+            particle.position[1] = height - particle.size / 2
+            particle.velocity[1] = (
+                -particle.velocity[1] * restitution
+            )  # rebote con pérdida de energía
 
-            # Paredes
-            if particle.position[0] - (particle.size / 2) < 0:
-                particle.position[0] = particle.size / 2
-                particle.velocity[0] = (
-                    -particle.velocity[0] * restitution
-                )  # rebote con pérdida de energía
+        # Paredes
+        if particle.position[0] - (particle.size / 2) < 0:
+            particle.position[0] = particle.size / 2
+            particle.velocity[0] = (
+                -particle.velocity[0] * restitution
+            )  # rebote con pérdida de energía
 
-            if particle.position[0] + (particle.size / 2) > width:
-                particle.position[0] = width - particle.size / 2
-                particle.velocity[0] = (
-                    -particle.velocity[0] * restitution
-                )  # rebote con pérdida de energía
+        if particle.position[0] + (particle.size / 2) > width:
+            particle.position[0] = width - particle.size / 2
+            particle.velocity[0] = (
+                -particle.velocity[0] * restitution
+            )  # rebote con pérdida de energía
 
     def resolve_collisions_with_grid(self, grid: dict):
         """

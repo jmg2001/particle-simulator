@@ -31,8 +31,13 @@ class ParticleSimulator:
         self.last_mouse_pos = None
         self.last_mouse_time = 0.0
         self.mouse_velocity = [0.0, 0.0]
-        self.mouse_alpha = 0.2  # factor de suavizado
+        self.mouse_alpha = 0.9  # factor de suavizado
         self.particles_emitted_with_mouse = 10
+
+        # CONFIGURACIÓN DE TIMESTEP FIJO
+        self.fixed_timestep = 1.0 / 60.0  # 60 Hz de física
+        self.accumulator = 0.0
+        self.max_frame_time = 0.25  # Máximo 250ms por frame
 
     def init(self):
         """Inicializar GLFW y OpenGL"""
@@ -86,27 +91,50 @@ class ParticleSimulator:
         while not glfw.window_should_close(self.window):
             # Calcular delta time
             current_time = glfw.get_time()
-            delta_time = current_time - self.last_time
+            frame_time = current_time - self.last_time
+
             self.last_time = current_time
 
-            # Procesar input
-            self.process_input()
+            # 2. LIMITAR FRAME TIME (evitar saltos enormes)
+            if frame_time > 0.25:
+                frame_time = 0.25  # Máximo 250ms por frame
 
-            if self.emit_particle_periodically:
-                # Every second
-                if current_time - self.last_time_particle_emitted > 1:
-                    # Emitir partículas continuamente
-                    self.particle_system.emit(
-                        particle=Particle(
-                            position=get_random_position(self.width, self.height)
+            # 3. ACUMULAR TIEMPO
+            self.accumulator += frame_time
+
+            # 4. ACTUALIZAR FÍSICA EN PASOS FIJOS
+            # Esto garantiza simulación consistente independiente del framerate
+            steps = 0
+            max_steps = 5  # Evitar "spiral of death"
+
+            while self.accumulator >= self.fixed_timestep and steps < max_steps:
+
+                # Procesar input
+                self.process_input()
+
+                if self.emit_particle_periodically:
+                    # Every second
+                    if current_time - self.last_time_particle_emitted > 1:
+                        # Emitir partículas continuamente
+                        self.particle_system.emit(
+                            particle=Particle(
+                                position=get_random_position(self.width, self.height)
+                            )
                         )
-                    )
-                    self.last_time_particle_emitted = current_time
+                        self.last_time_particle_emitted = current_time
 
-            # Actualizar partículas
-            self.particle_system.update(
-                delta_time, self.width, self.height, self.mouse_particle
-            )
+                # Actualizar partículas
+                self.particle_system.update(
+                    self.fixed_timestep, self.width, self.height, self.mouse_particle
+                )
+
+                # Reducir acumulador
+                self.accumulator -= self.fixed_timestep
+                steps += 1
+
+            # Si hubo demasiados pasos, descartar tiempo extra
+            if steps >= max_steps:
+                self.accumulator = 0.0
 
             # Renderizar
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
